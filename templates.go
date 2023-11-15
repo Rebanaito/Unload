@@ -76,26 +76,29 @@ const homeWorker = `<html>
 
 const homeEmployer = `<html>
 <h2>Logged in as '%s' (employer)</h2>
-<input type="hidden" id="token" name="token" value="%s">
 <form action="/me" method="post">
-	<button>My profile</button>
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="My profile">
 </form>
 <form action="/tasks" method="post">
-	<button>My tasks</button>
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="My tasks">
 </form>
 <form action="/start" method="post">
-	<button>Play the game</button>
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="Play">
 </form>
 </html>`
 
 const profileWorker = `<html>
 <h2>Logged in as '%s' (worker)</h2>
-<input type="hidden" id="token" name="token" value="%s">
 <form action="/home" method="post">
-	<button>Home</button>
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="Home">
 </form>
 <form action="/tasks" method="post">
-	<button>My tasks</button>
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="My tasks">
 </form>
 <table>
 	<tr>
@@ -117,20 +120,22 @@ const profileWorker = `<html>
 
 const profileEmployer = `<html>
 <h2>Logged in as '%s' (employer)</h2>
-<input type="hidden" id="token" name="token" value="%s">
 <form action="/home" method="post">
-	<button>Home</button>
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="Home">
 </form>
 <form action="/tasks" method="post">
-	<button>My tasks</button>
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="My tasks">
 </form>
 <form action="/start" method="post">
-	<button>Play the game</button>
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="Play">
 </form>
 <h2>Cash - %d</h2>%s</html>`
 
 const tasksWorker = `<html>
-<h2>Logged in as '%s' (tasks)</h2>
+<h2>Logged in as '%s' (worker)</h2>
 <input type="hidden" id="token" name="token" value="%s">
 <form action="/home" method="post">
 	<button>Home</button>

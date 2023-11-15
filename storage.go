@@ -138,20 +138,67 @@ func (p PostgreSQL) GetWorker(username string) (worker Worker, err error) {
 		return
 	}
 	rows.Next()
-	//worker, err = pgx.CollectOneRow[Worker](rows, pgx.RowToStructByNameLax[Worker])
 	rows.Scan(&worker.userid, &worker.wage, &worker.fatigue, &worker.weight, &worker.drinks)
 	rows.Close()
 	return
 }
 
 func (p PostgreSQL) GetWorkerTasks(username string) (tasks []Completed) {
+	query := fmt.Sprintf("SELECT userID FROM users WHERE username='%s'", username)
+	rows, err := p.conn.Query(context.Background(), query)
+	if err != nil {
+		return
+	}
+	userID, err := pgx.CollectOneRow[int](rows, pgx.RowTo)
+	if err != nil {
+		return
+	}
+	query = fmt.Sprintf("SELECT * FROM completed WHERE worker='%d'", userID)
+	rows, err = p.conn.Query(context.Background(), query)
+	if err != nil {
+		return
+	}
+	rows.Next()
+	tasks, _ = pgx.CollectRows[Completed](rows, pgx.RowToStructByNameLax[Completed])
 	return
 }
 
 func (p PostgreSQL) GetEmployer(username string) (employer Employer, workers []Worker, err error) {
+	query := fmt.Sprintf("SELECT userID FROM users WHERE username='%s'", username)
+	rows, err := p.conn.Query(context.Background(), query)
+	if err != nil {
+		return
+	}
+	employer.userid, err = pgx.CollectOneRow[int](rows, pgx.RowTo)
+	if err != nil {
+		return
+	}
+	query = fmt.Sprintf("SELECT cash FROM employers WHERE userid='%d'", employer.userid)
+	rows, err = p.conn.Query(context.Background(), query)
+	if err != nil {
+		return
+	}
+	employer.cash, err = pgx.CollectOneRow[int](rows, pgx.RowTo)
+	if err != nil {
+		return
+	}
+	query = "SELECT * FROM workers"
+	rows, err = p.conn.Query(context.Background(), query)
+	if err != nil {
+		return
+	}
+	rows.Next()
+	workers, err = pgx.CollectRows[Worker](rows, pgx.RowToStructByNameLax[Worker])
 	return
 }
 
 func (p PostgreSQL) GetEmployerTasks(username string) (tasks []Task) {
+	query := "SELECT * FROM tasks WHERE completed='false'"
+	rows, err := p.conn.Query(context.Background(), query)
+	if err != nil {
+		return
+	}
+	rows.Next()
+	tasks, _ = pgx.CollectRows[Task](rows, pgx.RowToStructByNameLax[Task])
 	return
 }

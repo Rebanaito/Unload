@@ -104,7 +104,7 @@ func Login(server *APIServer) http.HandlerFunc {
 				var tmpl *template.Template
 				switch role {
 				case "employer":
-					tmpl, _ = template.New("home").Parse(fmt.Sprintf(homeEmployer, username, token))
+					tmpl, _ = template.New("home").Parse(fmt.Sprintf(homeEmployer, username, token, token, token))
 				case "worker":
 					tmpl, _ = template.New("home").Parse(fmt.Sprintf(homeWorker, username, token, token))
 				}
@@ -159,7 +159,7 @@ func Home(server *APIServer) http.HandlerFunc {
 			var page string
 			switch role {
 			case "employer":
-				page = fmt.Sprintf(homeEmployer, username, token)
+				page = fmt.Sprintf(homeEmployer, username, token, token, token)
 			case "worker":
 				page = fmt.Sprintf(homeWorker, username, token, token)
 			}
@@ -242,7 +242,7 @@ func getEmployerInfo(server *APIServer, username, token string) string {
 	if builder.Len() == 0 {
 		builder.WriteString("No registered workers")
 	}
-	return fmt.Sprintf(profileEmployer, username, token, employer.cash, builder.String())
+	return fmt.Sprintf(profileEmployer, username, token, token, token, employer.cash, builder.String())
 }
 
 func getWorkerInfo(server *APIServer, username, token string) string {
@@ -252,6 +252,7 @@ func getWorkerInfo(server *APIServer, username, token string) string {
 	}
 	return fmt.Sprintf(profileWorker,
 		username,
+		token,
 		token,
 		worker.userid,
 		worker.wage,

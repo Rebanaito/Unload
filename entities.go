@@ -1,7 +1,8 @@
 package main
 
 type Employer struct {
-	cash int
+	userid int
+	cash   int
 }
 
 type Worker struct {
@@ -19,6 +20,7 @@ type Task struct {
 
 type Completed struct {
 	taskID   int
-	employer int
 	weight   int
+	employer int
+	userID   int
 }
