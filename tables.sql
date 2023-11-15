@@ -16,20 +16,20 @@ CREATE TABLE workers (
 	userID SERIAL REFERENCES users (userID),
 	wage int NOT NULL,
     fatigue int NOT NULL,
-    drinks boolean,
+	weight int NOT NULL,
+    drinks boolean NOT NULL,
 	UNIQUE(userID)
 );
 
 CREATE TABLE tasks (
 	taskID SERIAL PRIMARY KEY,
     weight int,
-	completed boolean,
-    UNIQUE(taskID)
+	completed boolean
 );
 
 CREATE TABLE completed (
-	taskID SERIAL REFERENCES tasks (taskID),
-	weight int REFERENCES tasks (weight),
-	employer SERIAL REFERENCES users (userID),
-    worker SERIAL REFERENCES users (userID)
+	taskID int NOT NULL,
+	weight int NOT NULL,
+	employer int NOT NULL,
+    worker int NOT NULL
 );

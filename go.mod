@@ -3,7 +3,7 @@ module github.com/Rebanaito/Unload
 go 1.21.1
 
 require (
-	github.com/dgrijalva/jwt-go v3.2.0+incompatible
+	github.com/golang-jwt/jwt/v5 v5.1.0
 	github.com/gorilla/mux v1.8.1
 	github.com/jackc/pgx/v5 v5.5.0
 )

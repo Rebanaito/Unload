@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -32,6 +33,8 @@ func (server *APIServer) Run() {
 	router.HandleFunc("/login_page", LoginPage)
 	router.HandleFunc("/login", Login(server))
 	router.HandleFunc("/register_page", RegisterPage)
+	router.HandleFunc("/register_employer", RegisterEmployer)
+	router.HandleFunc("/register_worker", RegisterWorker)
 	router.HandleFunc("/register", Register(server))
 	router.HandleFunc("/home", Home(server))
 	router.HandleFunc("/me", ProfileInfo(server))
@@ -63,6 +66,16 @@ func RegisterPage(w http.ResponseWriter, r *http.Request) {
 	tmpl.Execute(w, nil)
 }
 
+func RegisterEmployer(w http.ResponseWriter, r *http.Request) {
+	tmpl, _ := template.New("register").Parse(registerEmployer)
+	tmpl.Execute(w, nil)
+}
+
+func RegisterWorker(w http.ResponseWriter, r *http.Request) {
+	tmpl, _ := template.New("register").Parse(registerWorker)
+	tmpl.Execute(w, nil)
+}
+
 func Login(server *APIServer) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -83,23 +96,18 @@ func Login(server *APIServer) http.HandlerFunc {
 			if err != nil {
 				w.WriteHeader(http.StatusUnauthorized)
 				message := fmt.Sprintf(loginError, "Something went wrong, try again")
-				tmpl, _ := template.New("badCredentials").Parse(message)
+				tmpl, _ := template.New("token").Parse(message)
 				tmpl.Execute(w, nil)
 			} else {
-				http.SetCookie(w, &http.Cookie{
-					Name:  "token",
-					Value: token},
-				)
 				w.WriteHeader(http.StatusOK)
 
 				var tmpl *template.Template
 				switch role {
 				case "employer":
-					tmpl, _ = template.New("home").Parse(homeEmployer)
+					tmpl, _ = template.New("home").Parse(fmt.Sprintf(homeEmployer, username, token))
 				case "worker":
-					tmpl, _ = template.New("home").Parse(homeWorker)
+					tmpl, _ = template.New("home").Parse(fmt.Sprintf(homeWorker, username, token, token))
 				}
-
 				tmpl.Execute(w, nil)
 			}
 		}
@@ -113,7 +121,17 @@ func Register(server *APIServer) http.HandlerFunc {
 		password := r.FormValue("password")
 		role := r.FormValue("role")
 
-		err := server.storage.CreateUser(username, password, role)
+		var err error
+		switch role {
+		case "employer":
+			cash, _ := strconv.Atoi(r.FormValue("cash"))
+			err = server.storage.CreateEmployer(username, password, cash)
+		case "worker":
+			weight, _ := strconv.Atoi(r.FormValue("weight"))
+			wage, _ := strconv.Atoi(r.FormValue("wage"))
+			drinks := r.FormValue("drinks")
+			err = server.storage.CreateWorker(username, password, weight, wage, drinks == "true")
+		}
 
 		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -130,19 +148,20 @@ func Register(server *APIServer) http.HandlerFunc {
 
 func Home(server *APIServer) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		username, role := ValidateJWT(r, "home")
+		username, role, token := ValidateJWT(r, "home")
 		if username == "" {
 			w.WriteHeader(http.StatusUnauthorized)
 			tmpl, _ := template.New("badCredentials").Parse(unauthorizedAccess)
 			tmpl.Execute(w, nil)
 		} else {
 			w.WriteHeader(http.StatusOK)
+			w.Header().Set("token", token)
 			var page string
 			switch role {
 			case "employer":
-				page = fmt.Sprintf(homeEmployer, username)
+				page = fmt.Sprintf(homeEmployer, username, token)
 			case "worker":
-				page = fmt.Sprintf(homeWorker, username)
+				page = fmt.Sprintf(homeWorker, username, token, token)
 			}
 			tmpl, _ := template.New("home").Parse(page)
 			tmpl.Execute(w, nil)
@@ -152,19 +171,20 @@ func Home(server *APIServer) http.HandlerFunc {
 
 func ProfileInfo(server *APIServer) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		username, role := ValidateJWT(r, "home")
+		username, role, token := ValidateJWT(r, "home")
 		if username == "" {
 			w.WriteHeader(http.StatusUnauthorized)
 			tmpl, _ := template.New("badCredentials").Parse(unauthorizedAccess)
 			tmpl.Execute(w, nil)
 		} else {
 			w.WriteHeader(http.StatusOK)
+			w.Header().Set("token", token)
 			var page string
 			switch role {
 			case "employer":
-				page = getEmployerInfo(server, username)
+				page = getEmployerInfo(server, username, token)
 			case "worker":
-				page = getWorkerInfo(server, username)
+				page = getWorkerInfo(server, username, token)
 			}
 			tmpl, _ := template.New("home").Parse(page)
 			tmpl.Execute(w, nil)
@@ -174,19 +194,20 @@ func ProfileInfo(server *APIServer) http.HandlerFunc {
 
 func TaskInfo(server *APIServer) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		username, role := ValidateJWT(r, "home")
+		username, role, token := ValidateJWT(r, "home")
 		if username == "" {
 			w.WriteHeader(http.StatusUnauthorized)
 			tmpl, _ := template.New("badCredentials").Parse(unauthorizedAccess)
 			tmpl.Execute(w, nil)
 		} else {
 			w.WriteHeader(http.StatusOK)
+			w.Header().Set("token", token)
 			var page string
 			switch role {
 			case "employer":
-				page = getEmployerTasks(server, username)
+				page = getEmployerTasks(server, username, token)
 			case "worker":
-				page = getWorkerTasks(server, username)
+				page = getWorkerTasks(server, username, token)
 			}
 			tmpl, _ := template.New("home").Parse(page)
 			tmpl.Execute(w, nil)
@@ -194,7 +215,7 @@ func TaskInfo(server *APIServer) http.HandlerFunc {
 	})
 }
 
-func getEmployerInfo(server *APIServer, username string) string {
+func getEmployerInfo(server *APIServer, username, token string) string {
 	employer, workers, err := server.storage.GetEmployer(username)
 	if err != nil {
 		return err.Error()
@@ -221,23 +242,25 @@ func getEmployerInfo(server *APIServer, username string) string {
 	if builder.Len() == 0 {
 		builder.WriteString("No registered workers")
 	}
-	return fmt.Sprintf(profileEmployer, username, employer.cash, builder.String())
+	return fmt.Sprintf(profileEmployer, username, token, employer.cash, builder.String())
 }
 
-func getWorkerInfo(server *APIServer, username string) string {
+func getWorkerInfo(server *APIServer, username, token string) string {
 	worker, err := server.storage.GetWorker(username)
 	if err != nil {
 		return err.Error()
 	}
 	return fmt.Sprintf(profileWorker,
 		username,
+		token,
+		worker.userid,
 		worker.wage,
 		worker.fatigue,
 		worker.weight,
 		worker.drinks)
 }
 
-func getWorkerTasks(server *APIServer, username string) string {
+func getWorkerTasks(server *APIServer, username, token string) string {
 	tasks := server.storage.GetWorkerTasks(username)
 	var builder strings.Builder
 	for i, task := range tasks {
@@ -261,10 +284,10 @@ func getWorkerTasks(server *APIServer, username string) string {
 	if builder.Len() == 0 {
 		builder.WriteString("No completed tasks")
 	}
-	return fmt.Sprintf(tasksWorker, username, builder.String())
+	return fmt.Sprintf(tasksWorker, username, token, builder.String())
 }
 
-func getEmployerTasks(server *APIServer, username string) string {
+func getEmployerTasks(server *APIServer, username, token string) string {
 	tasks := server.storage.GetEmployerTasks(username)
 	var builder strings.Builder
 	for i, task := range tasks {
@@ -286,5 +309,5 @@ func getEmployerTasks(server *APIServer, username string) string {
 	if builder.Len() == 0 {
 		builder.WriteString("No available tasks")
 	}
-	return fmt.Sprintf(tasksEmployer, username, builder.String())
+	return fmt.Sprintf(tasksEmployer, username, token, builder.String())
 }
