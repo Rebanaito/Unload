@@ -1,13 +1,13 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,26 +25,6 @@ func NewAPIServer(listenAddr string, conn *pgxpool.Pool) *APIServer {
 	}
 }
 
-type apiFunc func(http.ResponseWriter, *http.Request) error
-
-func WriteJSON(w http.ResponseWriter, status int, v any) error {
-	w.Header().Add("Content-Type", "application/json")
-	w.WriteHeader(status)
-	return json.NewEncoder(w).Encode(v)
-}
-
-type APIError struct {
-	Error string
-}
-
-func makeHTTPHandleFunc(f apiFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := f(w, r); err != nil {
-			WriteJSON(w, http.StatusBadRequest, APIError{Error: err.Error()})
-		}
-	}
-}
-
 func (server *APIServer) Run() {
 	router := mux.NewRouter()
 
@@ -53,10 +33,9 @@ func (server *APIServer) Run() {
 	router.HandleFunc("/login", Login(server))
 	router.HandleFunc("/register_page", RegisterPage)
 	router.HandleFunc("/register", Register(server))
-	// router.HandleFunc("/register", makeHTTPHandleFunc(server.Register))
-	// router.HandleFunc("/home", Home(server))
-	// router.HandleFunc("/me", ProfileInfo(server))
-	// router.HandleFunc("/tasks", TaskInfo(server))
+	router.HandleFunc("/home", Home(server))
+	router.HandleFunc("/me", ProfileInfo(server))
+	router.HandleFunc("/tasks", TaskInfo(server))
 
 	log.Println("Server running on:", server.listenAddr)
 
@@ -90,16 +69,16 @@ func Login(server *APIServer) http.HandlerFunc {
 		username := r.FormValue("username")
 		password := r.FormValue("password")
 
-		id, role := server.storage.AuthUser(username, password)
+		role := server.storage.AuthUser(username, password)
 
-		if id == -1 {
+		if role == "" {
 			w.WriteHeader(http.StatusUnauthorized)
 			message := fmt.Sprintf(loginError, "Wrong username/password")
 			tmpl, _ := template.New("badCredentials").Parse(message)
 			tmpl.Execute(w, nil)
 		} else {
 
-			token, err := CreateJWT(id, role)
+			token, err := CreateJWT(username, role)
 
 			if err != nil {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -147,4 +126,165 @@ func Register(server *APIServer) http.HandlerFunc {
 			tmpl.Execute(w, nil)
 		}
 	})
+}
+
+func Home(server *APIServer) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, role := ValidateJWT(r, "home")
+		if username == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			tmpl, _ := template.New("badCredentials").Parse(unauthorizedAccess)
+			tmpl.Execute(w, nil)
+		} else {
+			w.WriteHeader(http.StatusOK)
+			var page string
+			switch role {
+			case "employer":
+				page = fmt.Sprintf(homeEmployer, username)
+			case "worker":
+				page = fmt.Sprintf(homeWorker, username)
+			}
+			tmpl, _ := template.New("home").Parse(page)
+			tmpl.Execute(w, nil)
+		}
+	})
+}
+
+func ProfileInfo(server *APIServer) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, role := ValidateJWT(r, "home")
+		if username == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			tmpl, _ := template.New("badCredentials").Parse(unauthorizedAccess)
+			tmpl.Execute(w, nil)
+		} else {
+			w.WriteHeader(http.StatusOK)
+			var page string
+			switch role {
+			case "employer":
+				page = getEmployerInfo(server, username)
+			case "worker":
+				page = getWorkerInfo(server, username)
+			}
+			tmpl, _ := template.New("home").Parse(page)
+			tmpl.Execute(w, nil)
+		}
+	})
+}
+
+func TaskInfo(server *APIServer) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, role := ValidateJWT(r, "home")
+		if username == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			tmpl, _ := template.New("badCredentials").Parse(unauthorizedAccess)
+			tmpl.Execute(w, nil)
+		} else {
+			w.WriteHeader(http.StatusOK)
+			var page string
+			switch role {
+			case "employer":
+				page = getEmployerTasks(server, username)
+			case "worker":
+				page = getWorkerTasks(server, username)
+			}
+			tmpl, _ := template.New("home").Parse(page)
+			tmpl.Execute(w, nil)
+		}
+	})
+}
+
+func getEmployerInfo(server *APIServer, username string) string {
+	employer, workers, err := server.storage.GetEmployer(username)
+	if err != nil {
+		return err.Error()
+	}
+	var builder strings.Builder
+	for i, worker := range workers {
+		if i == 0 {
+			builder.WriteString(`<table>
+								<tr>
+									<th>Wage</th>
+									<th>Fatigue</th>
+									<th>Max weight</th>
+									<th>Alcoholism</th>
+								</tr>`)
+		}
+		builder.WriteString(fmt.Sprintf(`<tr><td>%d</td>
+							<td>%d</td>
+							<td>%d</td>
+							<td>%v</td></tr>`, worker.wage, worker.fatigue, worker.weight, worker.drinks))
+		if i == len(workers)-1 {
+			builder.WriteString(`</table>`)
+		}
+	}
+	if builder.Len() == 0 {
+		builder.WriteString("No registered workers")
+	}
+	return fmt.Sprintf(profileEmployer, username, employer.cash, builder.String())
+}
+
+func getWorkerInfo(server *APIServer, username string) string {
+	worker, err := server.storage.GetWorker(username)
+	if err != nil {
+		return err.Error()
+	}
+	return fmt.Sprintf(profileWorker,
+		username,
+		worker.wage,
+		worker.fatigue,
+		worker.weight,
+		worker.drinks)
+}
+
+func getWorkerTasks(server *APIServer, username string) string {
+	tasks := server.storage.GetWorkerTasks(username)
+	var builder strings.Builder
+	for i, task := range tasks {
+		if i == 0 {
+			builder.WriteString(`<table>
+								<tr>
+									<th>Task ID</th>
+									<th>Employer</th>
+									<th>Weight</th>
+								</tr>`)
+		}
+		builder.WriteString(fmt.Sprintf(`<tr>
+											<td>%d</td>
+											<td>%d</td>
+											<td>%d</td>
+										</tr>`, task.taskID, task.employer, task.weight))
+		if i == len(tasks)-1 {
+			builder.WriteString(`</table>`)
+		}
+	}
+	if builder.Len() == 0 {
+		builder.WriteString("No completed tasks")
+	}
+	return fmt.Sprintf(tasksWorker, username, builder.String())
+}
+
+func getEmployerTasks(server *APIServer, username string) string {
+	tasks := server.storage.GetEmployerTasks(username)
+	var builder strings.Builder
+	for i, task := range tasks {
+		if i == 0 {
+			builder.WriteString(`<table>
+								<tr>
+									<th>Task ID</th>
+									<th>Weight</th>
+								</tr>`)
+		}
+		builder.WriteString(fmt.Sprintf(`<tr>
+											<td>%d</td>
+											<td>%d</td>
+										</tr>`, task.taskID, task.weight))
+		if i == len(tasks)-1 {
+			builder.WriteString(`</table>`)
+		}
+	}
+	if builder.Len() == 0 {
+		builder.WriteString("No available tasks")
+	}
+	return fmt.Sprintf(tasksEmployer, username, builder.String())
 }
