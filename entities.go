@@ -6,7 +6,7 @@ type Employer struct {
 }
 
 type Worker struct {
-	userid  int `db:"userid"`
+	userid  int
 	wage    int
 	fatigue int
 	drinks  bool

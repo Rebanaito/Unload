@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Interface that allows us to more easily implement the game with different storage
 type Storage interface {
 	AuthUser(username string, password string) (role string)
 	CreateEmployer(username string, password string, cash int) (err error)
@@ -30,10 +31,12 @@ type Storage interface {
 	UpdateTask(task Task, weight int)
 }
 
+// Current implementation of Storage
 type PostgreSQL struct {
 	conn *pgxpool.Pool
 }
 
+// Finds user with provided credentials, if found returns their role
 func (p PostgreSQL) AuthUser(username string, password string) (role string) {
 	query := fmt.Sprintf("SELECT role FROM users WHERE username='%s' AND password='%s'", username, password)
 	rows, err := p.conn.Query(context.Background(), query)
@@ -48,7 +51,14 @@ func (p PostgreSQL) AuthUser(username string, password string) (role string) {
 	return
 }
 
+// Create a new Employer user with provided credentials and money. Returns error if user already exists
+// or if the funds are insufficient
 func (p PostgreSQL) CreateEmployer(username string, password string, cash int) (err error) {
+
+	// Check that the provided amount is valid
+	if cash < 0 || cash > 100000 {
+		return errors.New("invalid amount")
+	}
 
 	// Check for existing non-bankrupt employers
 	rows, err := p.conn.Query(context.Background(), "SELECT COUNT(*) FROM employers WHERE cash > 0")
@@ -95,7 +105,17 @@ func (p PostgreSQL) CreateEmployer(username string, password string, cash int) (
 	return nil
 }
 
+// Create a new Worker user, with the provided credentials and parameters. Return error if values are invalid
 func (p PostgreSQL) CreateWorker(username string, password string, weight, wage int, drinks bool) (err error) {
+
+	// Checking for invalid parameters
+	if weight < 5 || weight > 30 {
+		return errors.New("invalid weight")
+	}
+
+	if wage < 10000 || weight > 30000 {
+		return errors.New("invalid wage")
+	}
 
 	// Try adding a user, checking for duplicate username
 	query := fmt.Sprintf("INSERT INTO users (username, password, role) VALUES ('%s', '%s', 'worker')", username, password)
@@ -132,6 +152,7 @@ func (p PostgreSQL) CreateWorker(username string, password string, weight, wage 
 	return nil
 }
 
+// Get a worker object by username. TODO: make JWT carry id instead of username
 func (p PostgreSQL) GetWorker(username string) (worker Worker, err error) {
 	query := fmt.Sprintf("SELECT userID FROM users WHERE username='%s'", username)
 	rows, err := p.conn.Query(context.Background(), query)
@@ -153,6 +174,7 @@ func (p PostgreSQL) GetWorker(username string) (worker Worker, err error) {
 	return
 }
 
+// Find the tasks completed by the worker
 func (p PostgreSQL) GetWorkerTasks(username string) (tasks []Completed) {
 	query := fmt.Sprintf("SELECT userID FROM users WHERE username='%s'", username)
 	rows, err := p.conn.Query(context.Background(), query)
@@ -183,6 +205,7 @@ func (p PostgreSQL) GetWorkerTasks(username string) (tasks []Completed) {
 	return
 }
 
+// Get the employer and all available workers
 func (p PostgreSQL) GetEmployer(username string) (employer Employer, workers []Worker, err error) {
 	query := fmt.Sprintf("SELECT userID FROM users WHERE username='%s'", username)
 	rows, err := p.conn.Query(context.Background(), query)
@@ -221,6 +244,7 @@ func (p PostgreSQL) GetAllWorkers() (workers []Worker) {
 	return
 }
 
+// Get all available (not completed) tasks
 func (p PostgreSQL) GetEmployerTasks() (tasks []Task) {
 	query := "SELECT * FROM tasks WHERE completed='false'"
 	rows, err := p.conn.Query(context.Background(), query)
@@ -242,6 +266,7 @@ func (p PostgreSQL) GetEmployerTasks() (tasks []Task) {
 	return
 }
 
+// Count the number of available tasks. Used by the task generating routine
 func (p PostgreSQL) GetActiveTaskCount() (active int) {
 	query := "SELECT * FROM tasks WHERE completed='false'"
 	rows, err := p.conn.Query(context.Background(), query)
@@ -254,6 +279,7 @@ func (p PostgreSQL) GetActiveTaskCount() (active int) {
 	return
 }
 
+// Adds a new task. Used by the task generating routine
 func (p PostgreSQL) AddTask(weight int) {
 	query := fmt.Sprintf("INSERT INTO tasks (weight, completed) VALUES ('%d', 'false')", weight)
 	rows, err := p.conn.Query(context.Background(), query)
@@ -287,6 +313,7 @@ func (p PostgreSQL) GetWorkerByID(id string) (worker Worker) {
 	return
 }
 
+// Adds money to the employer upon successful completion of the task
 func (p PostgreSQL) AddMoney(username string, profit int) {
 	query := fmt.Sprintf("SELECT userID FROM users WHERE username='%s'", username)
 	rows, err := p.conn.Query(context.Background(), query)
@@ -310,6 +337,7 @@ func (p PostgreSQL) AddMoney(username string, profit int) {
 	p.conn.Query(context.Background(), query)
 }
 
+// Marks the task as complete and saves the data about the team composition (who worked on the task)
 func (p PostgreSQL) MarkComplete(task Task, username string, workers []Worker) {
 	query := fmt.Sprintf("SELECT userID FROM users WHERE username='%s'", username)
 	rows, err := p.conn.Query(context.Background(), query)
@@ -329,6 +357,7 @@ func (p PostgreSQL) MarkComplete(task Task, username string, workers []Worker) {
 	p.conn.Query(context.Background(), query)
 }
 
+// Count the new fatigue values
 func (p PostgreSQL) UpdateWorkers(workers []Worker) {
 	for _, worker := range workers {
 		if worker.fatigue >= 100 {
@@ -347,6 +376,7 @@ func (p PostgreSQL) UpdateWorkers(workers []Worker) {
 	}
 }
 
+// Penalizes the employer after he fails the task
 func (p PostgreSQL) RemoveMoney(username string, wageTotal int) {
 	query := fmt.Sprintf("SELECT userID FROM users WHERE username='%s'", username)
 	rows, err := p.conn.Query(context.Background(), query)
@@ -366,7 +396,7 @@ func (p PostgreSQL) RemoveMoney(username string, wageTotal int) {
 	if err != nil {
 		return
 	}
-	query = fmt.Sprintf("UPDATE employers SET cash='%d' WHERE userid='%d'", cash-wageTotal, userid)
+	query = fmt.Sprintf("UPDATE employers SET cash='%d' WHERE userid='%d'", cash-(wageTotal+wageTotal/10), userid)
 	p.conn.Query(context.Background(), query)
 }
 

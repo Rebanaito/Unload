@@ -8,12 +8,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// Data used to generate the JWT. TODO: put this in a env file
 var SECRET = []byte("Do not hardcode stuff like this")
 
-type Claims struct {
-	Username string `json:"username"`
-}
-
+// Generate a JWT and store user info in the claims
 func CreateJWT(username, role string) (tokenString string, err error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 	claims := token.Claims.(jwt.MapClaims)

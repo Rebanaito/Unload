@@ -56,6 +56,7 @@ func (server *APIServer) Run() {
 	log.Println("Shutting the server down")
 }
 
+// Self-explanatory. Adds tasks every minute as long as there are < 10 active tasks
 func taskGenerator(server *APIServer) {
 	for {
 		count := server.storage.GetActiveTaskCount()
@@ -66,10 +67,11 @@ func taskGenerator(server *APIServer) {
 				server.storage.AddTask(weight)
 			}
 		}
-		time.Sleep(15 * time.Second)
+		time.Sleep(time.Minute)
 	}
 }
 
+// Navigational pages
 func DefaultPage(w http.ResponseWriter, r *http.Request) {
 	tmpl, _ := template.New("default").Parse(defaultPage)
 	tmpl.Execute(w, nil)
@@ -141,6 +143,7 @@ func Login(server *APIServer) http.HandlerFunc {
 	})
 }
 
+// TODO: implement password hashing
 func Register(server *APIServer) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -275,7 +278,7 @@ func Attempt(server *APIServer) http.HandlerFunc {
 			var totalWage int
 			for i, workerID := range workerIDS {
 				workers[i] = server.storage.GetWorkerByID(workerID)
-				totalMax += workers[i].weight
+				totalMax += (workers[i].weight * (100 - workers[i].fatigue)) / 100
 				totalWage += workers[i].wage
 			}
 			var message string
