@@ -136,22 +136,50 @@ const profileEmployer = `<html>
 
 const tasksWorker = `<html>
 <h2>Logged in as '%s' (worker)</h2>
-<input type="hidden" id="token" name="token" value="%s">
 <form action="/home" method="post">
-	<button>Home</button>
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="Home">
 </form>
 <form action="/me" method="post">
-	<button>My profile</button>
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="My profile">
 </form>%s</html>`
 
 const tasksEmployer = `<html>
 <h2>Logged in as '%s' (employer)</h2>
-<input type="hidden" id="token" name="token" value="%s">
 <form action="/home" method="post">
-	<button>Home</button>
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="Home">
 </form>
 <form action="/me" method="post">
-	<button>My profile</button>
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="My profile">
+<form action="/start" method="post">
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="Play">
 </form>%s</html>`
+
+const playGame = `<html>
+<h2>Logged in as '%s' (employer)</h2>
+<form action="/home" method="post">
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="Home">
+</form>
+<form action="/me" method="post">
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="My profile">
+</form>
+<form action="/tasks" method="post">
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="My tasks">
+</form>%s</html>`
+
+const attemptResult = `<html>
+<h2>Logged in as '%s' (employer)</h2>
+<h3>%s</h3>
+<form action="/home" method="post">
+<input type="hidden" id="token" name="token" value="%s">
+<input type="submit" value="Home">
+</form></html>`
 
 const unauthorizedAccess = `<html>Unauthorized access</html>`

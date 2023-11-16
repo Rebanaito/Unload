@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,16 +41,33 @@ func (server *APIServer) Run() {
 	router.HandleFunc("/home", Home(server))
 	router.HandleFunc("/me", ProfileInfo(server))
 	router.HandleFunc("/tasks", TaskInfo(server))
+	router.HandleFunc("/start", Play(server))
+	router.HandleFunc("/play", Attempt(server))
 
 	log.Println("Server running on:", server.listenAddr)
 
 	go func() { http.ListenAndServe(server.listenAddr, router) }()
+	go taskGenerator(server)
 
 	kill := make(chan os.Signal, 1)
 	signal.Notify(kill, os.Interrupt)
 	<-kill
 
 	log.Println("Shutting the server down")
+}
+
+func taskGenerator(server *APIServer) {
+	for {
+		count := server.storage.GetActiveTaskCount()
+		if count < 10 {
+			n := rand.Intn(10)
+			for i := 0; i < n; i++ {
+				weight := rand.Intn(70) + 10
+				server.storage.AddTask(weight)
+			}
+		}
+		time.Sleep(15 * time.Second)
+	}
 }
 
 func DefaultPage(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +109,15 @@ func Login(server *APIServer) http.HandlerFunc {
 			tmpl, _ := template.New("badCredentials").Parse(message)
 			tmpl.Execute(w, nil)
 		} else {
-
+			if role == "employer" {
+				employer, _, _ := server.storage.GetEmployer(username)
+				if employer.cash < 0 {
+					w.WriteHeader(http.StatusUnauthorized)
+					message := fmt.Sprintf(loginError, "Employer is bankrupt")
+					tmpl, _ := template.New("token").Parse(message)
+					tmpl.Execute(w, nil)
+				}
+			}
 			token, err := CreateJWT(username, role)
 
 			if err != nil {
@@ -155,7 +182,6 @@ func Home(server *APIServer) http.HandlerFunc {
 			tmpl.Execute(w, nil)
 		} else {
 			w.WriteHeader(http.StatusOK)
-			w.Header().Set("token", token)
 			var page string
 			switch role {
 			case "employer":
@@ -178,7 +204,6 @@ func ProfileInfo(server *APIServer) http.HandlerFunc {
 			tmpl.Execute(w, nil)
 		} else {
 			w.WriteHeader(http.StatusOK)
-			w.Header().Set("token", token)
 			var page string
 			switch role {
 			case "employer":
@@ -201,7 +226,6 @@ func TaskInfo(server *APIServer) http.HandlerFunc {
 			tmpl.Execute(w, nil)
 		} else {
 			w.WriteHeader(http.StatusOK)
-			w.Header().Set("token", token)
 			var page string
 			switch role {
 			case "employer":
@@ -209,6 +233,60 @@ func TaskInfo(server *APIServer) http.HandlerFunc {
 			case "worker":
 				page = getWorkerTasks(server, username, token)
 			}
+			tmpl, _ := template.New("home").Parse(page)
+			tmpl.Execute(w, nil)
+		}
+	})
+}
+
+func Play(server *APIServer) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, role, token := ValidateJWT(r, "home")
+		if username == "" || role != "employer" {
+			w.WriteHeader(http.StatusUnauthorized)
+			tmpl, _ := template.New("badCredentials").Parse(unauthorizedAccess)
+			tmpl.Execute(w, nil)
+		} else {
+			w.WriteHeader(http.StatusOK)
+			tasks := server.storage.GetEmployerTasks()
+			workers := server.storage.GetAllWorkers()
+			game := getGame(tasks, workers, token)
+			page := fmt.Sprintf(playGame, username, token, token, token, game)
+			tmpl, _ := template.New("home").Parse(page)
+			tmpl.Execute(w, nil)
+		}
+	})
+}
+
+func Attempt(server *APIServer) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, role, token := ValidateJWT(r, "home")
+		if username == "" || role != "employer" {
+			w.WriteHeader(http.StatusUnauthorized)
+			tmpl, _ := template.New("badCredentials").Parse(unauthorizedAccess)
+			tmpl.Execute(w, nil)
+		} else {
+			r.ParseForm()
+			taskID := r.Form["task"][0]
+			workerIDS := r.Form["worker"]
+			task := server.storage.GetTask(taskID)
+			workers := make([]Worker, len(workerIDS))
+			var totalMax int
+			var totalWage int
+			for i, workerID := range workerIDS {
+				workers[i] = server.storage.GetWorkerByID(workerID)
+				totalMax += workers[i].weight
+				totalWage += workers[i].wage
+			}
+			var message string
+			if totalMax >= task.weight {
+				message = "Task successful!"
+				server.UpdateWin(task, workers, username, totalWage)
+			} else {
+				message = "Task failed!"
+				server.UpdateFail(task, workers, username, totalWage, totalMax)
+			}
+			page := fmt.Sprintf(attemptResult, username, message, token)
 			tmpl, _ := template.New("home").Parse(page)
 			tmpl.Execute(w, nil)
 		}
@@ -223,18 +301,21 @@ func getEmployerInfo(server *APIServer, username, token string) string {
 	var builder strings.Builder
 	for i, worker := range workers {
 		if i == 0 {
-			builder.WriteString(`<table>
+			builder.WriteString(`<h3>Available workers</h3><table>
 								<tr>
+									<th>ID</th>
 									<th>Wage</th>
 									<th>Fatigue</th>
 									<th>Max weight</th>
 									<th>Alcoholism</th>
 								</tr>`)
 		}
-		builder.WriteString(fmt.Sprintf(`<tr><td>%d</td>
+		builder.WriteString(fmt.Sprintf(`<tr>
 							<td>%d</td>
 							<td>%d</td>
-							<td>%v</td></tr>`, worker.wage, worker.fatigue, worker.weight, worker.drinks))
+							<td>%d</td>
+							<td>%d</td>
+							<td>%v</td></tr>`, worker.userid, worker.wage, worker.fatigue, worker.weight, worker.drinks))
 		if i == len(workers)-1 {
 			builder.WriteString(`</table>`)
 		}
@@ -285,11 +366,11 @@ func getWorkerTasks(server *APIServer, username, token string) string {
 	if builder.Len() == 0 {
 		builder.WriteString("No completed tasks")
 	}
-	return fmt.Sprintf(tasksWorker, username, token, builder.String())
+	return fmt.Sprintf(tasksWorker, username, token, token, builder.String())
 }
 
 func getEmployerTasks(server *APIServer, username, token string) string {
-	tasks := server.storage.GetEmployerTasks(username)
+	tasks := server.storage.GetEmployerTasks()
 	var builder strings.Builder
 	for i, task := range tasks {
 		if i == 0 {
@@ -310,5 +391,72 @@ func getEmployerTasks(server *APIServer, username, token string) string {
 	if builder.Len() == 0 {
 		builder.WriteString("No available tasks")
 	}
-	return fmt.Sprintf(tasksEmployer, username, token, builder.String())
+	return fmt.Sprintf(tasksEmployer, username, token, token, token, builder.String())
+}
+
+func getGame(tasks []Task, workers []Worker, token string) string {
+	var builder strings.Builder
+
+	if len(tasks) == 0 {
+		builder.WriteString("<h2>No available tasks</h2>")
+	} else if len(workers) == 0 {
+		builder.WriteString("<h2>No available workers</h2>")
+	} else {
+		for i, task := range tasks {
+			if i == 0 {
+				builder.WriteString(fmt.Sprintf(`<form action="/play" method="post">
+				<input type="hidden" id="token" name="token" value="%s"><table>
+								<tr>
+									<th>Task ID</th>
+									<th>Weight</th>
+									<th>Choose task</th>
+								</tr>`, token))
+			}
+			builder.WriteString(fmt.Sprintf(`<tr>
+											<td>%d</td>
+											<td>%d</td>
+											<td><input type="radio" id="%d" name="task" value="%d" required></td>
+										</tr>`, task.taskID, task.weight, task.taskID, task.taskID))
+			if i == len(tasks)-1 {
+				builder.WriteString(`</table>`)
+			}
+		}
+		for i, worker := range workers {
+			if i == 0 {
+				builder.WriteString(`<h3>Available workers</h3><table>
+									<tr>
+										<th>ID</th>
+										<th>Wage</th>
+										<th>Fatigue</th>
+										<th>Max weight</th>
+										<th>Alcoholism</th>
+										<th>Select worker</th>
+									</tr>`)
+			}
+			builder.WriteString(fmt.Sprintf(`<tr>
+								<td>%d</td>
+								<td>%d</td>
+								<td>%d</td>
+								<td>%d</td>
+								<td>%v</td>
+								<td><input type="checkbox" name="worker" value="%d"></td>
+								</tr>`, worker.userid, worker.wage, worker.fatigue, worker.weight, worker.drinks, worker.userid))
+			if i == len(workers)-1 {
+				builder.WriteString(`</table><input type="submit" value="Attempt the task"></form>`)
+			}
+		}
+	}
+	return builder.String()
+}
+
+func (server *APIServer) UpdateWin(task Task, workers []Worker, username string, wageTotal int) {
+	server.storage.AddMoney(username, wageTotal/20)
+	server.storage.MarkComplete(task, username, workers)
+	server.storage.UpdateWorkers(workers)
+}
+
+func (server *APIServer) UpdateFail(task Task, workers []Worker, username string, wageTotal, weight int) {
+	server.storage.RemoveMoney(username, wageTotal)
+	server.storage.UpdateTask(task, weight)
+	server.storage.UpdateWorkers(workers)
 }

@@ -14,13 +14,14 @@ type Worker struct {
 }
 
 type Task struct {
-	taskID int
-	weight int
+	taskID    int
+	weight    int
+	completed bool
 }
 
 type Completed struct {
 	taskID   int
 	weight   int
 	employer int
-	userID   int
+	worker   int
 }
